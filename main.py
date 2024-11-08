@@ -1,43 +1,51 @@
-import cv2
+import rospy
 import numpy as np
-import pyrealsense2 as rs
-
-
-# Set up RealSense pipeline
-pipeline = rs.pipeline()
-config = rs.config()
-
-# Configure the pipeline to stream color and depth frames
-config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
-config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-
-# Start streaming
-pipeline.start(config)
+import cv2
+from nav_msgs.msg import Odometry
+from tf.transformations import euler_from_quaternion
+from geometry_msgs.msg import Twist
+from ar_track_alvar_msgs.msg import AlvarMarkers
 
 # Load YOLO model
 net = cv2.dnn.readNet("/Users/erroraccount/Desktop/image/yolov3.weights", "/Users/erroraccount/Desktop/image/yolov3.cfg")
 layer_names = net.getLayerNames()
-output_layers = net.getUnconnectedOutLayers()
-
-if isinstance(output_layers, np.ndarray):
-    output_layers = output_layers.flatten()
-
-output_layers = [layer_names[i - 1] for i in output_layers]
+output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
 
 with open("/Users/erroraccount/Desktop/image/coco.names", "r") as f:
     classes = [line.strip() for line in f.readlines()]
 
-while True:
-    # Wait for the next set of frames
-    frames = pipeline.wait_for_frames()
-    color_frame = frames.get_color_frame()
-    depth_frame = frames.get_depth_frame()
+# Set up video capture (USB camera, camera ID may vary)
+cap = cv2.VideoCapture(0)
 
-    if not color_frame:
-        print("No frame captured")
-        continue
+def get_robot_position(N):
+    # Similar to the original code to get AR tag positions for N robots
+    AlvarMsg = rospy.wait_for_message('/ar_pose_marker', AlvarMarkers)
+    pose = np.empty((4, N), float)
 
-    frame = np.asanyarray(color_frame.get_data())
+    while True:
+        if len(AlvarMsg.markers) == N:
+            for m in AlvarMsg.markers:
+                pose[0, m.id] = m.pose.pose.position.y  # Adjust as per camera frame
+                pose[1, m.id] = -m.pose.pose.position.z
+                orientation_q = m.pose.pose.orientation
+                orientation_list = [orientation_q.y, orientation_q.z, orientation_q.x, orientation_q.w]
+                (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
+                pose[2, m.id] = -yaw
+                pose[3, m.id] = m.id
+            break
+        else:
+            print("Waiting for markers...")
+            AlvarMsg = rospy.wait_for_message('/ar_pose_marker', AlvarMarkers)
+
+    ind = np.argsort(pose[3, :])
+    pose = pose[:, ind]
+    return pose[[0, 1, 2], :]
+
+while cap.isOpened():
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to grab frame")
+        break
 
     # YOLO object detection
     blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
@@ -50,7 +58,7 @@ while True:
             class_id = np.argmax(scores)
             confidence = scores[class_id]
 
-            if confidence > 0.5:  
+            if confidence > 0.5:  # Confidence threshold
                 center_x, center_y = int(detection[0] * frame.shape[1]), int(detection[1] * frame.shape[0])
                 w, h = int(detection[2] * frame.shape[1]), int(detection[3] * frame.shape[0])
                 x, y = int(center_x - w / 2), int(center_y - h / 2)
@@ -59,12 +67,13 @@ while True:
                 cv2.putText(frame, f"{classes[class_id]}: {confidence:.2f}", (x, y - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    # Display the resulting frame
-    cv2.imshow("YOLO Object Detection with RealSense", frame)
+    # Display the result with detections
+    cv2.imshow("YOLO Object Detection with AR Tag Localization", frame)
 
-    if cv2.waitKey(1) & 0xFF == 27:  
+    # Press 'q' to exit the loop
+    if cv2.waitKey(1) & 0xFF == ord('q'):
         break
 
-# Stop streaming
-pipeline.stop()
+# Release resources
+cap.release()
 cv2.destroyAllWindows()
