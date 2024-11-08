@@ -1,31 +1,19 @@
 import rospy
 import numpy as np
-import cv2
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from geometry_msgs.msg import Twist
 from ar_track_alvar_msgs.msg import AlvarMarkers
 
-# Load YOLO model
-net = cv2.dnn.readNet("/Users/erroraccount/Desktop/image/yolov3.weights", "/Users/erroraccount/Desktop/image/yolov3.cfg")
-layer_names = net.getLayerNames()
-output_layers = [layer_names[i[0] - 1] for i in net.getUnconnectedOutLayers()]
-
-with open("/Users/erroraccount/Desktop/image/coco.names", "r") as f:
-    classes = [line.strip() for line in f.readlines()]
-
-# Set up video capture (USB camera, camera ID may vary)
-cap = cv2.VideoCapture(0)
-
 def get_robot_position(N):
-    # Similar to the original code to get AR tag positions for N robots
+    # This function gets the position of AR tags for N robots
     AlvarMsg = rospy.wait_for_message('/ar_pose_marker', AlvarMarkers)
     pose = np.empty((4, N), float)
 
     while True:
         if len(AlvarMsg.markers) == N:
             for m in AlvarMsg.markers:
-                pose[0, m.id] = m.pose.pose.position.y  # Adjust as per camera frame
+                pose[0, m.id] = m.pose.pose.position.y  # Adjusted for camera frame
                 pose[1, m.id] = -m.pose.pose.position.z
                 orientation_q = m.pose.pose.orientation
                 orientation_list = [orientation_q.y, orientation_q.z, orientation_q.x, orientation_q.w]
@@ -41,39 +29,53 @@ def get_robot_position(N):
     pose = pose[:, ind]
     return pose[[0, 1, 2], :]
 
-while cap.isOpened():
-    ret, frame = cap.read()
-    if not ret:
-        print("Failed to grab frame")
-        break
+def put_velocities(N, dxu):
+    # Publishes velocity commands to each robot
+    for i in range(N):
+        velPub = rospy.Publisher(f'raspi_{i}/cmd_vel', Twist, queue_size=3)
+        velMsg = create_vel_msg(dxu[0, i], dxu[1, i])
+        velPub.publish(velMsg)
 
-    # YOLO object detection
-    blob = cv2.dnn.blobFromImage(frame, 0.00392, (416, 416), (0, 0, 0), True, crop=False)
-    net.setInput(blob)
-    detections = net.forward(output_layers)
+def create_vel_msg(v, w):
+    # Creates a Twist message for robot movement
+    velMsg = Twist()
+    velMsg.linear.x = v
+    velMsg.linear.y = 0
+    velMsg.linear.z = 0
+    velMsg.angular.x = 0
+    velMsg.angular.y = 0
+    velMsg.angular.z = w
+    return velMsg
 
-    for out in detections:
-        for detection in out:
-            scores = detection[5:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
+def set_velocities(ids, velocities, max_linear_velocity=0.3, max_angular_velocity=6):
+    # Adjusts velocities within max linear and angular constraints
+    idxs = np.where(np.abs(velocities[0, :]) > max_linear_velocity)
+    velocities[0, idxs] = max_linear_velocity * np.sign(velocities[0, idxs])
 
-            if confidence > 0.5:  # Confidence threshold
-                center_x, center_y = int(detection[0] * frame.shape[1]), int(detection[1] * frame.shape[0])
-                w, h = int(detection[2] * frame.shape[1]), int(detection[3] * frame.shape[0])
-                x, y = int(center_x - w / 2), int(center_y - h / 2)
+    idxs = np.where(np.abs(velocities[1, :]) > max_angular_velocity)
+    velocities[1, idxs] = max_angular_velocity * np.sign(velocities[1, idxs])
+    return velocities
 
-                cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
-                cv2.putText(frame, f"{classes[class_id]}: {confidence:.2f}", (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+def main():
+    rospy.init_node('robot_control')
+    N = 3  # Example: Number of robots
 
-    # Display the result with detections
-    cv2.imshow("YOLO Object Detection with AR Tag Localization", frame)
+    while not rospy.is_shutdown():
+        # Get robot positions based on AR tags
+        positions = get_robot_position(N)
 
-    # Press 'q' to exit the loop
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+        # Example control strategy (could be any control algorithm)
+        dxu = np.zeros((2, N))
+        for i in range(N):
+            # Set desired velocity for each robot (modify as needed)
+            dxu[0, i] = 0.2  # Example linear velocity
+            dxu[1, i] = 0.1  # Example angular velocity
 
-# Release resources
-cap.release()
-cv2.destroyAllWindows()
+        # Set the velocities with constraints
+        constrained_velocities = set_velocities(range(N), dxu)
+
+        # Send velocities to each robot
+        put_velocities(N, constrained_velocities)
+
+if __name__ == "__main__":
+    main()
