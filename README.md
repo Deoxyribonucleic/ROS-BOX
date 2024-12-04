@@ -32,10 +32,10 @@ source ~/catkin_ws/devel/setup.bash
 
 ## Commands
 
-```
 #Running gazebo
 ```
 roslaunch raspimouse_gazebo raspimouse_with_emptyworld.launch  ```//to start up the gazebo with empty world.
+```
 
 #Running codes <In new terminal>.
 ```
