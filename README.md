@@ -12,12 +12,12 @@ To build this you need to install
 
 
 ### Installation
-# Download Simulation Package
 
+#Download Simulation Package
 ```cd ~/catkin_ws/src
 git clone https://github.com/rt-net/raspimouse_sim.git
 ```
-#Installing exsitent package**
+#Installing exsitent package
 ```git clone https://github.com/rt-net/raspimouse.git
 git clone https://github.com/rt-net/raspimouse_description.git
 rosdep install -r -y -i --from-paths raspimouse*
