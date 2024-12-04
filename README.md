@@ -28,7 +28,9 @@ cd ~/catkin_ws && catkin_make
 source ~/catkin_ws/devel/setup.bash
 ```
 #Download required hardware model
-```rosrun raspimouse_gazebo download_gazebo_models.sh```
+```
+rosrun raspimouse_gazebo download_gazebo_models.sh
+```
 
 
 ## Commands
