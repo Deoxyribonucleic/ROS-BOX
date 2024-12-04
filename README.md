@@ -1,46 +1,63 @@
 **Requirements for RaspiMouse V3**
+# ROS Documentation
 
-ROS 2 Humble: Ubuntu Desktop 22.04
+## Prerequisites
 
-ROS Noetic: Ubuntu Desktop 20.04
+To build this you need to install
 
-**Download Simulation Package**
+* make
+* graphviz
+* ROS Noetic: Ubuntu Desktop 20.04
+
 ```
+#Download Simulation Package
+python3 -m venv ros2doc
+
+# activate venv
+source ros2doc/bin/activate
+
+# install required packages
+pip install -r requirements.txt -c constraints.txt
+
+# deactivate the venv
+(ros2doc) deactivate
+```
+
+### Installation
+```
+# Download Simulation Package
 cd ~/catkin_ws/src
 git clone https://github.com/rt-net/raspimouse_sim.git
-```
 
-**Installing exsitent package**
-```
+#Installing exsitent package**
 git clone https://github.com/rt-net/raspimouse.git
 git clone https://github.com/rt-net/raspimouse_description.git
 rosdep install -r -y -i --from-paths raspimouse*
-```
 
-**Build Package**
-```
+#Build Package
 cd ~/catkin_ws && catkin_make
 source ~/catkin_ws/devel/setup.bash
 
-```
-
-**Download required hardware model**
-
-```
+#Download required hardware model
 rosrun raspimouse_gazebo download_gazebo_models.sh
 ```
 
 
-**Running ROS simulation command.**
+## Commands
 
 ```
+#Running gazebo
 roslaunch raspimouse_gazebo raspimouse_with_emptyworld.launch   //to start up the gazebo with empty world.
 
-```
-**Then open new terminal:**
+#Running codes <In new terminal>.
+rosrun <launch file> <script.py>
+
 
 ```
-rosrun <launch file> <script.py>
-```
+
+
+
+
+**NB:** Ensure that you have all the required dependencies installed and that the correct ROS workspace is sourced before running any commands. If you encounter issues during the installation, it might be helpful to check for missing packages or resolve any conflicts in your ROS workspace, especially with multiple package versions.
 
 
