@@ -7,7 +7,8 @@ To build this you need to install
 
 * make
 * graphviz
-* ROS Noetic: Ubuntu Desktop 20.04
+* ROS Noetic
+* Ubuntu Desktop 20.04
 
 
 ### Installation
