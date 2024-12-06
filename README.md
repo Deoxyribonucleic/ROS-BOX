@@ -8,11 +8,28 @@ To build this you need to install
 * make
 * graphviz
 * ROS Noetic
+* ar_track_overhead_alvar
 * Ubuntu Desktop 20.04
 
 
 ### Installation
+#Downloading Required Packages
+```
+git clone https://github.com/keeratifts/ar_track_overhead_camera.git
+```
 
+
+
+
+
+
+
+
+
+
+
+
+### Simulations.
 #Download Simulation Package
 ```cd ~/catkin_ws/src
 git clone https://github.com/rt-net/raspimouse_sim.git
@@ -31,8 +48,6 @@ source ~/catkin_ws/devel/setup.bash
 ```
 rosrun raspimouse_gazebo download_gazebo_models.sh
 ```
-
-
 ## Commands
 
 #Running gazebo
