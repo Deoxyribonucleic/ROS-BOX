@@ -17,6 +17,10 @@ To build this you need to install
 ```
 git clone https://github.com/keeratifts/ar_track_overhead_camera.git
 ```
+See [ROS wiki](http://wiki.ros.org/ar_track_alvar) for the users document.
+
+In our case: marker 0 ~ 8 is being used for the robots.
+
 
 
 
