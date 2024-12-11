@@ -63,6 +63,8 @@ roslaunch raspimouse_gazebo raspimouse_with_emptyworld.launch  ```//to start up 
 ```
 rosrun <launch file> <script.py>
 
+rosrun ros_box main.py
+
 ```
 
 
