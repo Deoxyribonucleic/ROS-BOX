@@ -1,51 +1,90 @@
 #!/usr/bin/env python
 import rospy
-import sys
 from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+import numpy
+from tf.transformations import euler_from_quaternion
 
-def move_robot(direction, duration=2.0):
+robot_pose = None  # Global variable to store robot's current pose
+
+def odom_callback(data):
+    """Callback function to update the robot's pose."""
+    global robot_pose
+    robot_pose = data.pose.pose
+
+def move_forward():
     # Initialize the ROS node
-    rospy.init_node('move_robot', anonymous=True)
+    rospy.init_node('move_robot_forward', anonymous=True)
+    rospy.Subscriber('/odom', Odometry, odom_callback)  # Subscribe to odometry data
     pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
-    rate = rospy.Rate(10)  # 10 Hz
 
-    # Set the movement parameters
+    goal_x = 5.0
+    goal_y = 5.0
+
+    # Wait until the robot's pose is available
+    global robot_pose
+    while robot_pose is None and not rospy.is_shutdown():
+        rospy.loginfo("Waiting for robot pose...")
+        rospy.sleep(0.1)
+
+    robot_x = robot_pose.position.x
+    robot_y = robot_pose.position.y
+    orientation_q = robot_pose.orientation
+    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+    _, _, robot_yaw = euler_from_quaternion(orientation_list)
+
+    rate = rospy.Rate(10)
+
+    # Calculate the angle to the goal
+    angle_to_goal = numpy.arctan2(goal_y - robot_y, goal_x - robot_x)
+
+    # Calculate the angular difference and normalize it
+    angular_difference = angle_to_goal - robot_yaw
+    angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))  # Normalize
+
+    # Rotate the robot to face the goal
     move_cmd = Twist()
-    if direction == 'forward':
-        move_cmd.linear.x = 0.5  # Move forward
-    elif direction == 'backward':
-        move_cmd.linear.x = -0.5  # Move backward
-    elif direction == 'left':
-        move_cmd.angular.z = 0.5  # Turn left
-    elif direction == 'right':
-        move_cmd.angular.z = -0.5  # Turn right
-    else:
-        rospy.loginfo("Invalid direction. Use 'forward', 'backward', 'left', or 'right'.")
-        return
-
-    # Move the robot for the specified duration
-    start_time = rospy.Time.now()
-    while rospy.Time.now() - start_time < rospy.Duration(duration):
+    move_cmd.angular.z = 0.5 if angular_difference > 0 else -0.5  # Rotate direction
+    rospy.loginfo("Rotating robot to face the goal...")
+    while abs(angular_difference) > 0.1 and not rospy.is_shutdown():
         pub.publish(move_cmd)
         rate.sleep()
 
-    # Stop the robot after moving
-    move_cmd.linear.x = 0.0
+        # Update the angular difference
+        robot_x = robot_pose.position.x
+        robot_y = robot_pose.position.y
+        orientation_q = robot_pose.orientation
+        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, robot_yaw = euler_from_quaternion(orientation_list)
+        angular_difference = angle_to_goal - robot_yaw
+        angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))
+
+    # Stop rotation
     move_cmd.angular.z = 0.0
     pub.publish(move_cmd)
-    rospy.loginfo("Movement complete.")
+
+    # Calculate total distance to the goal
+    total_distance = numpy.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
+
+    # Move forward toward the goal
+    move_cmd.linear.x = 0.5  # Forward speed (m/s)
+    rospy.loginfo("Moving robot forward at 0.5 m/s")
+    while total_distance > 0.1 and not rospy.is_shutdown():
+        pub.publish(move_cmd)
+        rate.sleep()
+
+        # Update the total distance
+        robot_x = robot_pose.position.x
+        robot_y = robot_pose.position.y
+        total_distance = numpy.sqrt((goal_x - robot_x)**2 + (goal_y - robot_y)**2)
+
+    # Stop the robot
+    move_cmd.linear.x = 0.0
+    pub.publish(move_cmd)
+    rospy.loginfo("Stopping robot")
 
 if __name__ == '__main__':
     try:
-        if len(sys.argv) < 2:
-            print("Usage: rosrun <package_name> move_robot.py <direction> [duration]")
-            sys.exit(1)
-        
-        direction = sys.argv[1].strip().lower()
-        duration = float(sys.argv[2]) if len(sys.argv) > 2 else 2.0
-
-        move_robot(direction, duration)
+        move_forward()
     except rospy.ROSInterruptException:
         pass
-    except ValueError:
-        print("Invalid duration. Please provide a numerical value for duration.")
