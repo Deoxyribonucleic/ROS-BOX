@@ -1,40 +1,51 @@
 #!/usr/bin/env python
 import rospy
+import sys
 from geometry_msgs.msg import Twist
 
-def move_forward():
+def move_robot(direction, duration=2.0):
     # Initialize the ROS node
-    rospy.init_node('move_robot_forward', anonymous=True)
-
-    # Create a publisher to the 'cmd_vel' topic with message type Twist
+    rospy.init_node('move_robot', anonymous=True)
     pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+    rate = rospy.Rate(10)  # 10 Hz
 
-    # Set the rate of publishing commands (10 Hz)
-    rate = rospy.Rate(10)
-
-    # Create a Twist message to store velocity commands
+    # Set the movement parameters
     move_cmd = Twist()
+    if direction == 'forward':
+        move_cmd.linear.x = 0.5  # Move forward
+    elif direction == 'backward':
+        move_cmd.linear.x = -0.5  # Move backward
+    elif direction == 'left':
+        move_cmd.angular.z = 0.5  # Turn left
+    elif direction == 'right':
+        move_cmd.angular.z = -0.5  # Turn right
+    else:
+        rospy.loginfo("Invalid direction. Use 'forward', 'backward', 'left', or 'right'.")
+        return
 
-    # Set linear velocity (move forward along the x-axis) and angular velocity (no turning)
-    move_cmd.linear.x = 0.5  # Forward speed (m/s)
-    move_cmd.angular.z = 0.0  # No rotation
+    # Move the robot for the specified duration
+    start_time = rospy.Time.now()
+    while rospy.Time.now() - start_time < rospy.Duration(duration):
+        pub.publish(move_cmd)
+        rate.sleep()
 
-    # Print a message and publish the velocity for 5 seconds
-    rospy.loginfo("Moving robot forward at 0.5 m/s")
-    duration = 5  # Move for 5 seconds
-
-    start_time = rospy.get_time()
-    while rospy.get_time() - start_time < duration and not rospy.is_shutdown():
-        pub.publish(move_cmd)  # Publish the move command
-        rate.sleep()  # Sleep to maintain 10 Hz
-
-    # Stop the robot after 5 seconds
+    # Stop the robot after moving
     move_cmd.linear.x = 0.0
+    move_cmd.angular.z = 0.0
     pub.publish(move_cmd)
-    rospy.loginfo("Stopping robot")
+    rospy.loginfo("Movement complete.")
 
 if __name__ == '__main__':
     try:
-        move_forward()
+        if len(sys.argv) < 2:
+            print("Usage: rosrun <package_name> move_robot.py <direction> [duration]")
+            sys.exit(1)
+        
+        direction = sys.argv[1].strip().lower()
+        duration = float(sys.argv[2]) if len(sys.argv) > 2 else 2.0
+
+        move_robot(direction, duration)
     except rospy.ROSInterruptException:
         pass
+    except ValueError:
+        print("Invalid duration. Please provide a numerical value for duration.")
