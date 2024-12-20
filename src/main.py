@@ -1,81 +1,92 @@
+#!/usr/bin/env python
 import rospy
-import numpy as np
-from nav_msgs.msg import Odometry
-from tf.transformations import euler_from_quaternion
 from geometry_msgs.msg import Twist
-from ar_track_alvar_msgs.msg import AlvarMarkers
+from nav_msgs.msg import Odometry
+import numpy
+from tf.transformations import euler_from_quaternion
 
-def get_robot_position(N):
-    # This function gets the position of AR tags for N robots
-    AlvarMsg = rospy.wait_for_message('/ar_pose_marker', AlvarMarkers)
-    pose = np.empty((4, N), float)
+robot_pose = None  # Global variable to store robot's current pose
 
-    while True:
-        if len(AlvarMsg.markers) == N:
-            for m in AlvarMsg.markers:
-                pose[0, m.id] = m.pose.pose.position.y  # Adjusted for camera frame
-                pose[1, m.id] = -m.pose.pose.position.z
-                orientation_q = m.pose.pose.orientation
-                orientation_list = [orientation_q.y, orientation_q.z, orientation_q.x, orientation_q.w]
-                (roll, pitch, yaw) = euler_from_quaternion(orientation_list)
-                pose[2, m.id] = -yaw
-                pose[3, m.id] = m.id
-            break
-        else:
-            print("Waiting for markers...")
-            AlvarMsg = rospy.wait_for_message('/ar_pose_marker', AlvarMarkers)
+def odom_callback(data):
+    """Callback function to update the robot's pose."""
+    global robot_pose
+    robot_pose = data.pose.pose
 
-    ind = np.argsort(pose[3, :])
-    pose = pose[:, ind]
-    return pose[[0, 1, 2], :]
+def move_forward():
+    # Initialize the ROS node
+    rospy.init_node('move_robot_forward', anonymous=True)
+    rospy.Subscriber('/odom', Odometry, odom_callback)  # Subscribe to odometry data
+    pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
 
-def put_velocities(N, dxu):
-    # Publishes velocity commands to each robot
-    for i in range(N):
-        velPub = rospy.Publisher(f'raspi_{i}/cmd_vel', Twist, queue_size=3)
-        velMsg = create_vel_msg(dxu[0, i], dxu[1, i])
-        velPub.publish(velMsg)
+    goal_x = 5.0
+    goal_y = 5.0
+    position_tolerance = 0.1  # Tolerance for stopping near the goal
 
-def create_vel_msg(v, w):
-    # Creates a Twist message for robot movement
-    velMsg = Twist()
-    velMsg.linear.x = v
-    velMsg.linear.y = 0
-    velMsg.linear.z = 0
-    velMsg.angular.x = 0
-    velMsg.angular.y = 0
-    velMsg.angular.z = w
-    return velMsg
+    # Wait until the robot's pose is available
+    global robot_pose
+    while robot_pose is None and not rospy.is_shutdown():
+        rospy.loginfo("Waiting for robot pose...")
+        rospy.sleep(0.1)
 
-def set_velocities(ids, velocities, max_linear_velocity=0.3, max_angular_velocity=6):
-    # Adjusts velocities within max linear and angular constraints
-    idxs = np.where(np.abs(velocities[0, :]) > max_linear_velocity)
-    velocities[0, idxs] = max_linear_velocity * np.sign(velocities[0, idxs])
+    rate = rospy.Rate(10)
 
-    idxs = np.where(np.abs(velocities[1, :]) > max_angular_velocity)
-    velocities[1, idxs] = max_angular_velocity * np.sign(velocities[1, idxs])
-    return velocities
+    # Extract the initial robot pose and orientation
+    robot_x = robot_pose.position.x
+    robot_y = robot_pose.position.y
+    orientation_q = robot_pose.orientation
+    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+    _, _, robot_yaw = euler_from_quaternion(orientation_list)
 
-def main():
-    rospy.init_node('robot_control')
-    N = 3  # Example: Number of robots
+    # Calculate the angle to the goal
+    angle_to_goal = numpy.arctan2(goal_y - robot_y, goal_x - robot_x)
 
+    # Calculate the angular difference and normalize it
+    angular_difference = angle_to_goal - robot_yaw
+    angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))  # Normalize
+
+    # Rotate the robot to face the goal
+    move_cmd = Twist()
+    move_cmd.angular.z = 0.5 if angular_difference > 0 else -0.5  # Rotate direction
+    rospy.loginfo("Rotating robot to face the goal...")
+    while abs(angular_difference) > 0.1 and not rospy.is_shutdown():
+        pub.publish(move_cmd)
+        rate.sleep()
+
+        # Update the angular difference
+        robot_x = robot_pose.position.x
+        robot_y = robot_pose.position.y
+        orientation_q = robot_pose.orientation
+        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+        _, _, robot_yaw = euler_from_quaternion(orientation_list)
+        angular_difference = angle_to_goal - robot_yaw
+        angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))
+
+    # Stop rotation
+    move_cmd.angular.z = 0.0
+    pub.publish(move_cmd)
+
+    # Move forward toward the goal
+    move_cmd.linear.x = 0.5  # Forward speed (m/s)
+    rospy.loginfo("Moving robot forward at 0.5 m/s")
     while not rospy.is_shutdown():
-        # Get robot positions based on AR tags
-        positions = get_robot_position(N)
+        robot_x = robot_pose.position.x
+        robot_y = robot_pose.position.y
 
-        # Example control strategy (could be any control algorithm)
-        dxu = np.zeros((2, N))
-        for i in range(N):
-            # Set desired velocity for each robot (modify as needed)
-            dxu[0, i] = 0.2  # Example linear velocity
-            dxu[1, i] = 0.1  # Example angular velocity
+        # Check if the robot is near the goal position
+        if abs(goal_x - robot_x) < position_tolerance and abs(goal_y - robot_y) < position_tolerance:
+            rospy.loginfo("Goal reached! Stopping robot.")
+            break
 
-        # Set the velocities with constraints
-        constrained_velocities = set_velocities(range(N), dxu)
+        pub.publish(move_cmd)
+        rate.sleep()
 
-        # Send velocities to each robot
-        put_velocities(N, constrained_velocities)
+    # Stop the robot
+    move_cmd.linear.x = 0.0
+    pub.publish(move_cmd)
+    rospy.loginfo("Stopping robot")
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    try:
+        move_forward()
+    except rospy.ROSInterruptException:
+        pass
