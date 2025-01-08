@@ -2,7 +2,7 @@ import rospy
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from geometry_msgs.msg import Point, Twist
-from math import atan2
+from math import atan2, sqrt
 
 # Initialize global variables for position and orientation
 x = 0.0
@@ -36,6 +36,9 @@ goal = Point()
 goal.x = 5
 goal.y = 5
 
+# Tolerance for reaching the goal
+goal_tolerance = 0.2
+
 # Set rate for the loop
 r = rospy.Rate(4)
 
@@ -44,6 +47,16 @@ while not rospy.is_shutdown():
     # Calculate distance to goal
     inc_x = goal.x - x
     inc_y = goal.y - y
+    distance_to_goal = sqrt(inc_x**2 + inc_y**2)
+
+    # Check if the robot is within the goal tolerance
+    if distance_to_goal <= goal_tolerance:
+        # Stop the robot
+        speed.linear.x = 0.0
+        speed.angular.z = 0.0
+        pub.publish(speed)
+        rospy.loginfo("Goal reached!")
+        break  # Exit the loop when the goal is reached
 
     # Calculate angle to goal
     angle_to_goal = atan2(inc_y, inc_x)
