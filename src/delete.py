@@ -2,7 +2,7 @@ import rospy
 from nav_msgs.msg import Odometry
 from tf.transformations import euler_from_quaternion
 from geometry_msgs.msg import Point, Twist
-from math import atan2, pi
+from math import atan2, pi, sqrt
 
 # Global variables
 x = 0.0
@@ -49,15 +49,22 @@ goal.y = 5
 
 # Main loop
 while not rospy.is_shutdown():
-    # Calculate increments and angle to goal
+    # Calculate increments and distance to goal
     inc_x = goal.x - x
     inc_y = goal.y - y
+    distance_to_goal = sqrt(inc_x**2 + inc_y**2)
 
     angle_to_goal = atan2(inc_y, inc_x)
     angular_error = normalize_angle(angle_to_goal - theta)
 
-    # Control logic
-    if abs(angular_error) > 0.1:  # Angular alignment
+    print(f"x: {x}, y: {y}, theta: {theta}")
+    print(f"distance_to_goal: {distance_to_goal}, angle_to_goal: {angle_to_goal}, angular_error: {angular_error}")
+
+    # If the robot is close to the goal, stop
+    if distance_to_goal < 0.1:
+        speed.linear.x = 0.0
+        speed.angular.z = 0.0
+    elif abs(angular_error) > 0.1:  # Angular alignment
         speed.linear.x = 0.0
         speed.angular.z = 0.5 * angular_error  # Proportional control
     else:  # Move towards the goal
