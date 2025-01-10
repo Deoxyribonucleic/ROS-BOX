@@ -94,9 +94,29 @@ def move_to_goal(goal_x, goal_y):
 
     return False
 
+# Function to avoid the box and position the robot on the opposite side
+def avoid_and_position(box_x, box_y):
+    # Determine the side to approach based on x and y positions
+    offset_distance = 0.5  # Distance to avoid collision
+
+    if abs(box_x) > abs(box_y):
+        # Approach from the side perpendicular to the x-axis
+        target_x = box_x
+        target_y = box_y + (offset_distance if box_y > 0 else -offset_distance)
+    else:
+        # Approach from the side perpendicular to the y-axis
+        target_x = box_x + (offset_distance if box_x > 0 else -offset_distance)
+        target_y = box_y
+
+    rospy.loginfo("Avoiding box and positioning on opposite side.")
+    move_to_goal(target_x, target_y)
+
 # Function to move the box to the origin
 def move_box_to_origin(box_x, box_y):
     goal_tolerance = 0.2
+
+    # Avoid the box and position the robot
+    avoid_and_position(box_x, box_y)
 
     # Move along the x-axis first
     if abs(box_x) > goal_tolerance:
