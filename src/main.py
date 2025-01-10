@@ -1,92 +1,108 @@
 #!/usr/bin/env python
 import rospy
-from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
-import numpy
+from gazebo_msgs.srv import GetModelState
 from tf.transformations import euler_from_quaternion
+from geometry_msgs.msg import Point, Twist
+from math import atan2, sqrt, pi
 
-robot_pose = None  # Global variable to store robot's current pose
+# Initialize global variables for position and orientation
+x = 0.0
+y = 0.0
+theta = 0.0
 
-def odom_callback(data):
-    """Callback function to update the robot's pose."""
-    global robot_pose
-    robot_pose = data.pose.pose
+# Callback function to handle Odometry messages
+def newOdom(msg):
+    global x, y, theta
+    x = msg.pose.pose.position.x  # X position of the robot
+    y = msg.pose.pose.position.y  # Y position of the robot
 
-def move_forward():
-    # Initialize the ROS node
-    rospy.init_node('move_robot_forward', anonymous=True)
-    rospy.Subscriber('/odom', Odometry, odom_callback)  # Subscribe to odometry data
-    pub = rospy.Publisher('/cmd_vel', Twist, queue_size=10)
+    # Extract orientation from quaternion
+    rot_q = msg.pose.pose.orientation
+    orientation_list = [rot_q.x, rot_q.y, rot_q.z, rot_q.w]
+    (roll, pitch, theta) = euler_from_quaternion(orientation_list)
 
-    goal_x = 5.0
-    goal_y = 5.0
-    position_tolerance = 0.1  # Tolerance for stopping near the goal
-
-    # Wait until the robot's pose is available
-    global robot_pose
-    while robot_pose is None and not rospy.is_shutdown():
-        rospy.loginfo("Waiting for robot pose...")
-        rospy.sleep(0.1)
-
-    rate = rospy.Rate(10)
-
-    # Extract the initial robot pose and orientation
-    robot_x = robot_pose.position.x
-    robot_y = robot_pose.position.y
-    orientation_q = robot_pose.orientation
-    orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-    _, _, robot_yaw = euler_from_quaternion(orientation_list)
-
-    # Calculate the angle to the goal
-    angle_to_goal = numpy.arctan2(goal_y - robot_y, goal_x - robot_x)
-
-    # Calculate the angular difference and normalize it
-    angular_difference = angle_to_goal - robot_yaw
-    angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))  # Normalize
-
-    # Rotate the robot to face the goal
-    move_cmd = Twist()
-    move_cmd.angular.z = 0.5 if angular_difference > 0 else -0.5  # Rotate direction
-    rospy.loginfo("Rotating robot to face the goal...")
-    while abs(angular_difference) > 0.1 and not rospy.is_shutdown():
-        pub.publish(move_cmd)
-        rate.sleep()
-
-        # Update the angular difference
-        robot_x = robot_pose.position.x
-        robot_y = robot_pose.position.y
-        orientation_q = robot_pose.orientation
-        orientation_list = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
-        _, _, robot_yaw = euler_from_quaternion(orientation_list)
-        angular_difference = angle_to_goal - robot_yaw
-        angular_difference = numpy.arctan2(numpy.sin(angular_difference), numpy.cos(angular_difference))
-
-    # Stop rotation
-    move_cmd.angular.z = 0.0
-    pub.publish(move_cmd)
-
-    # Move forward toward the goal
-    move_cmd.linear.x = 0.5  # Forward speed (m/s)
-    rospy.loginfo("Moving robot forward at 0.5 m/s")
-    while not rospy.is_shutdown():
-        robot_x = robot_pose.position.x
-        robot_y = robot_pose.position.y
-
-        # Check if the robot is near the goal position
-        if abs(goal_x - robot_x) < position_tolerance and abs(goal_y - robot_y) < position_tolerance:
-            rospy.loginfo("Goal reached! Stopping robot.")
-            break
-
-        pub.publish(move_cmd)
-        rate.sleep()
-
-    # Stop the robot
-    move_cmd.linear.x = 0.0
-    pub.publish(move_cmd)
-    rospy.loginfo("Stopping robot")
-
-if __name__ == '__main__':
+# Function to get the position of the 'unit_box'
+def get_box_position():
+    rospy.wait_for_service('/gazebo/get_model_state')
     try:
-        move_forward()
-    except rospy.ROSInterruptException:
-        pass
+        # Create a service proxy for the GetModelState service
+        get_model_state = rospy.ServiceProxy('/gazebo/get_model_state', GetModelState)
+
+        # Call the service to get the state of 'unit_box'
+        response = get_model_state("unit_box", "")  # The second argument is an empty string
+
+        # Extract the position of the box
+        box_position = response.pose.position
+        return box_position.x, box_position.y
+    except rospy.ServiceException as e:
+        rospy.logerr("Service call failed: %s", e)
+        return None, None
+
+# Initialize the ROS node
+rospy.init_node("speed_controller")
+
+# Subscribers and Publishers
+sub = rospy.Subscriber("/odom", Odometry, newOdom)
+pub = rospy.Publisher("/cmd_vel", Twist, queue_size=1)
+
+# Twist message for velocity control
+speed = Twist()
+
+# Tolerance for reaching the goal
+goal_tolerance = 0.2
+
+# Set rate for the loop
+r = rospy.Rate(4)
+
+# Main loop
+while not rospy.is_shutdown():
+    # Get the current position of the unit_box
+    goal_x, goal_y = get_box_position()
+
+    # If we failed to get the box position, skip this iteration
+    if goal_x is None or goal_y is None:
+        rospy.logerr("Could not retrieve goal position.")
+        break
+
+    # Calculate distance to goal
+    inc_x = goal_x - x
+    inc_y = goal_y - y
+    distance_to_goal = sqrt(inc_x**2 + inc_y**2)
+
+    # Check if the robot is within the goal tolerance
+    if distance_to_goal <= goal_tolerance:
+        # Stop the robot
+        speed.linear.x = 0.0
+        speed.angular.z = 0.0
+        pub.publish(speed)
+        rospy.loginfo("Goal reached!")
+        break  # Exit the loop when the goal is reached
+
+    # Calculate angle to goal
+    angle_to_goal = atan2(inc_y, inc_x)
+
+    # Calculate the difference between the current orientation and the angle to the goal
+    angle_diff = angle_to_goal - theta
+
+    # Normalize the angle difference to the range (-pi, pi)
+    if angle_diff > pi:
+        angle_diff -= 2 * pi
+    elif angle_diff < -pi:
+        angle_diff += 2 * pi
+
+    # Adjust speed based on angle difference
+    if abs(angle_diff) > 0.1:
+        speed.linear.x = 0.0
+        # Rotate clockwise or counterclockwise based on the shortest direction
+        if angle_diff > 0:
+            speed.angular.z = 0.3  # Counterclockwise
+        else:
+            speed.angular.z = -0.3  # Clockwise
+    else:
+        speed.linear.x = 0.5
+        speed.angular.z = 0.0
+
+    # Publish the velocity command
+    pub.publish(speed)
+    r.sleep()
