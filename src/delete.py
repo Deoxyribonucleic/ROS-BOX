@@ -120,10 +120,10 @@ def move_box_to_origin(box_x, box_y):
     # Avoid the box and position the robot behind it
     avoid_and_position(box_x, box_y)
 
-    # Move to a position directly behind the box
-    target_x = box_x + (BOX_WIDTH if box_x > 0 else -BOX_WIDTH)
-    target_y = box_y + (BOX_LENGTH if box_y > 0 else -BOX_LENGTH)
-    rospy.loginfo(f"Positioning robot behind box at ({target_x}, {target_y}).")
+    # Move to a position further along the x-axis behind the box
+    target_x = box_x + (1.0 if box_x > 0 else -1.0)  # Move further along x-axis
+    target_y = box_y
+    rospy.loginfo(f"Positioning robot further behind box at ({target_x}, {target_y}).")
     move_to_goal(target_x, target_y)
 
     # Push the box towards the origin
