@@ -94,64 +94,41 @@ def move_to_goal(goal_x, goal_y):
 
     return False
 
-# Function to push the box along one axis towards the origin
-def push_box_to_axis(box_x, box_y):
-    # Determine which axis to align first
+# Function to avoid the box and position the robot on the opposite side
+def avoid_and_position(box_x, box_y):
+    # Distance offset for safe positioning behind the box
+    offset_distance = 0.7  # Adjust if necessary for your setup
+    rospy.loginfo("Calculating position to approach the box.")
+
+    # Determine the exact point behind the box
+    if abs(box_x) > abs(box_y):
+        # Approach along the x-axis
+        target_x = box_x
+        target_y = box_y + (offset_distance if box_y > 0 else -offset_distance)
+    else:
+        # Approach along the y-axis
+        target_x = box_x + (offset_distance if box_x > 0 else -offset_distance)
+        target_y = box_y
+
+    rospy.loginfo(f"Moving to avoid box at ({target_x}, {target_y}).")
+    move_to_goal(target_x, target_y)
+
+# Function to move the box to the origin
+def move_box_to_origin(box_x, box_y):
     goal_tolerance = 0.2
 
-    if abs(box_x) > goal_tolerance:
-        # Move to a position behind the box to push it along the x-axis
-        target_x = box_x + (1.0 if box_x > 0 else -1.0)
-        target_y = box_y
-        rospy.loginfo("Moving to push position for x-axis alignment.")
-        move_to_goal(target_x, target_y)
+    # Avoid the box and position the robot behind it
+    avoid_and_position(box_x, box_y)
 
-        # Rotate towards the origin
-        angle_to_origin = atan2(0 - box_y, 0 - box_x)
-        rotate_to_angle(angle_to_origin)
+    # Move to a position directly behind the box
+    target_x = box_x + (BOX_WIDTH if box_x > 0 else -BOX_WIDTH)
+    target_y = box_y + (BOX_LENGTH if box_y > 0 else -BOX_LENGTH)
+    rospy.loginfo(f"Positioning robot behind box at ({target_x}, {target_y}).")
+    move_to_goal(target_x, target_y)
 
-        # Push the box towards the origin along the x-axis
-        rospy.loginfo("Pushing box along x-axis towards the origin.")
-        move_to_goal(0.0, box_y)
-
-    if abs(box_y) > goal_tolerance:
-        # Move to a position behind the box to push it along the y-axis
-        target_x = 0.0
-        target_y = box_y + (1.0 if box_y > 0 else -1.0)
-        rospy.loginfo("Moving to push position for y-axis alignment.")
-        move_to_goal(target_x, target_y)
-
-        # Rotate towards the origin
-        angle_to_origin = atan2(0 - box_y, 0 - box_x)
-        rotate_to_angle(angle_to_origin)
-
-        # Push the box towards the origin along the y-axis
-        rospy.loginfo("Pushing box along y-axis towards the origin.")
-        move_to_goal(0.0, 0.0)
-
-# Function to rotate the robot to a specific angle
-def rotate_to_angle(target_angle):
-    r = rospy.Rate(10)
-    speed = Twist()
-
-    while not rospy.is_shutdown():
-        angle_diff = target_angle - theta
-
-        # Normalize the angle difference
-        if angle_diff > pi:
-            angle_diff -= 2 * pi
-        elif angle_diff < -pi:
-            angle_diff += 2 * pi
-
-        if abs(angle_diff) < 0.1:
-            speed.angular.z = 0.0
-            pub.publish(speed)
-            rospy.loginfo("Rotation complete.")
-            return
-
-        speed.angular.z = 0.3 if angle_diff > 0 else -0.3
-        pub.publish(speed)
-        r.sleep()
+    # Push the box towards the origin
+    rospy.loginfo("Pushing box to origin.")
+    move_to_goal(0.0, 0.0)
 
 # Initialize the ROS node
 rospy.init_node("box_to_origin")
@@ -170,8 +147,12 @@ while not rospy.is_shutdown():
         rospy.logerr("Could not retrieve box position.")
         break
 
-    # Move the robot to the box position + offset and push towards the origin
-    rospy.loginfo("Starting push sequence.")
-    push_box_to_axis(box_x, box_y)
-    rospy.loginfo("Box has been moved to the origin.")
-    break
+    # Move the robot to the box position
+    if move_to_goal(box_x, box_y):
+        rospy.loginfo("Robot is at the box position.")
+        move_box_to_origin(box_x, box_y)
+        rospy.loginfo("Box has been moved to the origin.")
+        break
+    else:
+        rospy.logwarn("Failed to reach box coordinates.")
+        break
